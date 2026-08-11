@@ -22,6 +22,7 @@ def upgrade() -> None:
     op.execute("""
         CREATE TABLE mng_files (
             file_name     text        PRIMARY KEY,
+            month         text        NOT NULL,
             market        text        NOT NULL,
             updated_at    timestamptz NOT NULL
         )
