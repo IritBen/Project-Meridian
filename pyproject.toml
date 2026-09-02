@@ -1,5 +1,5 @@
 [project]
-name = "projdct-meridian"
+name = "project-meridian"
 version = "0.1.0"
 description = "Meridian Bikes trip ingest"
 requires-python = ">=3.11"
@@ -7,4 +7,11 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "alembic>=1.13",
     "sqlalchemy>=2.0.52",
+    "python-dotenv>=1.2.2",
+    "requests>=2.34.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
 ]
