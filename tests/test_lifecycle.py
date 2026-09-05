@@ -14,9 +14,11 @@ import time
 import docker
 from collections.abc import Callable
 from functools import partial
+import json
 
-def just(command: str) -> None:
-    subprocess.run(["just", command], check=True)
+def just(command: str, *args: str) -> str:
+    result = subprocess.run(["just", command, *args], check=True, stdout=subprocess.PIPE, text=True)
+    return result.stdout
 
 
 def is_postgres_up(dsn: str) -> bool:
@@ -98,3 +100,19 @@ def test_just_down_volume():
     assert is_volume_exists(VOLUME_NAME), "volume is not up in time"
     just("down")
     assert is_volume_exists(VOLUME_NAME), "volume is down after just down and suppose to be up"
+
+# Test 5 - bronze
+# Invoke just up
+    # just run to bronze for JC 202102
+    # check inspect output equal to the json I write
+
+def test_just_run_ingest_to_bronze_jc_202102():
+    just("up")
+    just("run", "ingest-to-bronze", "trips:jc", "2021-02")
+    result = json.loads(just("inspect", "bronze", "trips:jc", "2021-02"))
+    expected_result = {"layer": "bronze","job": "trips:jc","window": "2021-02","objects": 1,"rows": 4881}
+    assert result == expected_result
+
+         
+    
+    
