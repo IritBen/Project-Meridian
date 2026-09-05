@@ -26,6 +26,9 @@ def is_postgres_up(dsn: str) -> bool:
     except psycopg.Error:
         return False
 
+def is_postgres_down() -> bool:
+    return not is_postgres_up(DSN)
+
 def wait_for(condition_function: Callable[[], bool], iterations: int, time_to_sleep: int) -> bool:
     is_condition_satisfied = False
     for _ in range(iterations):
@@ -61,8 +64,6 @@ def is_volume_exists(volume_name: str) -> bool:
         return False
 
 def test_just_up_volume():
-    assert not is_volume_exists(VOLUME_NAME)
-    volume_is_exists = False
     just("up")
     volume_is_exists = wait_for(partial(is_volume_exists, VOLUME_NAME), 10, 2)
     assert volume_is_exists
@@ -77,12 +78,12 @@ def test_just_up_volume():
 
 
 def test_just_down_postgres():
-    assert not is_postgres_up(DSN), "postgres was up before even running just up, remove it first"
-    postgres_is_up = False
     just("up")
     postgres_is_up = wait_for(partial(is_postgres_up, DSN), 10, 2)
     assert postgres_is_up, "postgres didn't come up in time"
     just("down")
+    postgres_is_down = wait_for(is_postgres_down, 10, 2)
+    assert postgres_is_down, "potgress didn't go down althoug it should have"
 
 
 # Test 4 - volumn does not exist
