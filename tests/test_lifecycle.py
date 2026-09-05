@@ -19,14 +19,14 @@ def just(command: str) -> None:
     subprocess.run(["just", command], check=True)
 
 
-def is_postgres_up() -> bool:
+def is_postgres_up(dsn: str) -> bool:
     try:
-        psycopg.connect(DSN, connect_timeout=2)
-        return True
+        with psycopg.connect(dsn, connect_timeout=2):
+            return True
     except psycopg.Error:
         return False
 
-def wait_for(condition_function: callable[[],bool], iterations: int, time_to_sleep: int) -> bool:
+def wait_for(condition_function: Callable[[], bool], iterations: int, time_to_sleep: int) -> bool:
     is_condition_satisfied = False
     for _ in range(iterations):
         is_condition_satisfied = condition_function()
@@ -52,7 +52,7 @@ def test_just_up_postgres():
 
 VOLUME_NAME = "bronze-data"
 
-def is_volumn_exists(volume_name: str) -> bool:
+def is_volume_exists(volume_name: str) -> bool:
     client = docker.from_env()
     try:
         client.volumes.get(volume_name)
@@ -61,10 +61,10 @@ def is_volumn_exists(volume_name: str) -> bool:
         return False
 
 def test_just_up_volume():
-    assert not is_volumn_exists(VOLUME_NAME)
+    assert not is_volume_exists(VOLUME_NAME)
     volume_is_exists = False
     just("up")
-    volume_is_exists = wait_for(partial(is_volumn_exists, VOLUME_NAME), 10, 2)
+    volume_is_exists = wait_for(partial(is_volume_exists, VOLUME_NAME), 10, 2)
     assert volume_is_exists
 
 
@@ -91,3 +91,9 @@ def test_just_down_postgres():
         # check if volume exists
         # success -> sleep 2
         # failure -> ok
+
+def test_just_down_volume():
+    just("up")
+    assert is_volume_exists(VOLUME_NAME), "volume is not up in time"
+    just("down")
+    assert is_volume_exists(VOLUME_NAME), "volume is down after just down and suppose to be up"
