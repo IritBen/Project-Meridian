@@ -6,4 +6,4 @@ down:
     docker compose down
 
 run layer job window:
-    echo " Layer: {{layer}} Job: {{job}} Window: {{window}}"
+    docker compose run --rm --build compute python src/meridian/cli.py run "{{layer}}" "{{job}}" "{{window}}"
