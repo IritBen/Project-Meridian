@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from urllib.request import urlopen
 from urllib.parse import quote
-from shutil import copyfileobj
+from shutil import copyfileobj, rmtree
 from tempfile import TemporaryFile
 from zipfile import ZipFile
 
@@ -19,6 +19,18 @@ def ingest_to_bronze(job: str, window: str) -> None:
     bronze_root = Path("/bronze")
     dataset, market = job.split(":")
     year, month = window.split("-")
+    window_number = f"{year}{month}"
+    window_date = (int(year), int(month))
+
+    if market.upper() == "JC":
+        source_prefix = f"{market.upper()}-{window_number}"
+        member_prefix = source_prefix
+    else:
+        if window_date < (2024, 1):
+            source_prefix = year
+        else:
+            source_prefix = window_number
+        member_prefix = window_number
 
     target_dir = bronze_root / dataset / market / year / month
 
@@ -28,8 +40,6 @@ def ingest_to_bronze(job: str, window: str) -> None:
     root = ET.fromstring(listing_xml)
 
     matching_keys_and_dates = []
-
-    source_prefix = f"{market.upper()}-{year}{month}"
 
     contents_elements = root.findall("s3:Contents", S3_NAMESPACE)
 
@@ -58,6 +68,9 @@ def ingest_to_bronze(job: str, window: str) -> None:
     for file_name, last_modified in matching_keys_and_dates:
         if last_modified > latest_last_modified:
             latest_last_modified = last_modified
+
+    if target_dir.exists():
+        rmtree(target_dir)
 
     target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -92,9 +105,42 @@ def ingest_to_bronze(job: str, window: str) -> None:
                     if not member.filename.lower().endswith(".csv"):
                         continue
 
+                    member_name = Path(member.filename).name
+
+                    if not member_name.startswith(member_prefix):
+                        continue
+
                     csv_members.append(member)
 
+                members_by_directory = {}
+
                 for member in csv_members:
+                    directory = str(Path(member.filename).parent)
+
+                    if directory not in members_by_directory:
+                        members_by_directory[directory] = []
+
+                    members_by_directory[directory].append(member)
+
+                latest_directory = None
+                latest_directory_time = None
+
+                for directory, members in members_by_directory.items():
+                    directory_time = max(
+                        member.date_time
+                        for member in members
+                    )
+
+                    if (
+                        latest_directory_time is None
+                        or directory_time > latest_directory_time
+                    ):
+                        latest_directory = directory
+                        latest_directory_time = directory_time
+
+                selected_members = members_by_directory[latest_directory]
+
+                for member in selected_members:
                     destination_path = target_dir / Path(member.filename).name
 
                     with zip_file.open(member) as source_file:
