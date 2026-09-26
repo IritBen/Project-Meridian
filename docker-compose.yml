@@ -13,6 +13,8 @@ services:
 
   compute:
     build: .
+    environment:
+      DATABASE_URL: postgresql://meridian:meridian@postgres:5432/meridian
     volumes:
       - bronze-data:/bronze
 
