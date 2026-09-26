@@ -1,6 +1,7 @@
 import xml.etree.ElementTree as ET
 import csv
 import json
+import re
 from pathlib import Path
 from urllib.request import urlopen
 from urllib.parse import quote
@@ -16,6 +17,19 @@ S3_NAMESPACE = {
 
 
 def ingest_to_bronze(job: str, window: str) -> None:
+
+    if job not in {"trips:jc", "trips:nyc"}:
+        raise ValueError(
+            f"Unsupported Bronze job: {job}"
+        )
+    
+    if re.fullmatch(
+        r"\d{4}-(0[1-9]|1[0-2])",
+        window,
+    ) is None:
+        raise ValueError(
+            f"Bronze window must be an ISO-8601 month: {window}"
+        )
     bronze_root = Path("/bronze")
     dataset, market = job.split(":")
     year, month = window.split("-")

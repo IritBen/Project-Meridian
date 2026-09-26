@@ -3,10 +3,24 @@ import psycopg
 import csv
 import hashlib
 import json
+import re
 from pathlib import Path
 from psycopg.types.json import Jsonb
 
 def transform_to_silver(job: str, window: str) -> None:
+
+    if job not in {"trips:jc", "trips:nyc"}:
+        raise ValueError(
+            f"Unsupported Silver job: {job}"
+        )
+    
+    if re.fullmatch(
+        r"\d{4}-(0[1-9]|1[0-2])",
+        window,
+    ) is None:
+        raise ValueError(
+            f"Silver window must be an ISO-8601 month: {window}"
+        )
 
     dataset, market = job.split(":")
     year, month = window.split("-")
@@ -260,18 +274,72 @@ def transform_to_silver(job: str, window: str) -> None:
                 f"for {market} {window}"
             )
 
+
+def inspect_silver(job: str, window: str) -> dict:
+    dataset, market = job.split(":")
+
+    if dataset != "trips" or market not in {"jc", "nyc"}:
+        raise ValueError(f"Unsupported Silver job: {job}")
+
+    dsn = os.environ["DATABASE_URL"]
+
+    with psycopg.connect(dsn) as connection:
+        with connection.cursor() as cursor:
             cursor.execute(
-                """
-                SELECT reason, COUNT(*)
-                FROM silver.trips_quarantine
-                WHERE source_market = %s
-                  AND source_window = %s
-                GROUP BY reason
-                ORDER BY reason
-                """,
-                (market, window),
+                "SELECT to_regclass('silver.trips')"
             )
-            
-            print(cursor.fetchall())
+            trips_table_exists = cursor.fetchone()[0] is not None
 
+            if trips_table_exists:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM silver.trips
+                    WHERE source_market = %s
+                      AND source_window = %s
+                    """,
+                    (market, window),
+                )
+                row_count = cursor.fetchone()[0]
+            else:
+                row_count = 0
 
+            cursor.execute(
+                "SELECT to_regclass('silver.trips_quarantine')"
+            )
+            quarantine_table_exists = (
+                cursor.fetchone()[0] is not None
+            )
+
+            if quarantine_table_exists:
+                cursor.execute(
+                    """
+                    SELECT
+                        reason,
+                        COUNT(*)
+                    FROM silver.trips_quarantine
+                    WHERE source_market = %s
+                      AND source_window = %s
+                    GROUP BY reason
+                    ORDER BY reason
+                    """,
+                    (market, window),
+                )
+
+                reasons = {
+                    reason: count
+                    for reason, count in cursor.fetchall()
+                }
+            else:
+                reasons = {}
+
+    reject_count = sum(reasons.values())
+
+    return {
+        "layer": "silver",
+        "job": job,
+        "window": window,
+        "rows": row_count,
+        "rejects": reject_count,
+        "reasons": reasons,
+    }
