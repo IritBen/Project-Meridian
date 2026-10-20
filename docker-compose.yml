@@ -1,15 +1,66 @@
 name: ${COMPOSE_PROJECT_NAME:-meridian-pipeline}
 
+x-airflow-common:
+  &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile.airflow
+
+  environment:
+    &airflow-common-environment
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: >-
+      postgresql+psycopg://meridian:meridian@postgres:5432/meridian
+
+    AIRFLOW__CORE__AUTH_MANAGER: >-
+      airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: >-
+      http://airflow-api-server:8080/execution/
+
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+
+    AIRFLOW__API_AUTH__JWT_SECRET: meridian-local-jwt-secret
+    AIRFLOW__API__SECRET_KEY: meridian-local-api-secret
+
+    DATABASE_URL: >-
+      postgresql://meridian:meridian@postgres:5432/meridian
+
+    BRONZE_ROOT: /bronze
+
+    COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-meridian-pipeline}
+    POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+
+    PYTHONPATH: /opt/airflow/meridian/src
+
+  user: "${AIRFLOW_UID:-50000}:0"
+
+  group_add:
+    - "${DOCKER_GID:-0}"
+
+  working_dir: /opt/airflow/meridian
+
+  volumes:
+    - .:/opt/airflow/meridian
+    - ./src/meridian_airflow/dags:/opt/airflow/dags
+    - bronze-data:/bronze
+    - airflow-logs:/opt/airflow/logs
+    - /var/run/docker.sock:/var/run/docker.sock
+
 services:
   postgres:
     image: postgres:17
-    #container_name: meridian-postgres
+
     environment:
       POSTGRES_USER: meridian
       POSTGRES_PASSWORD: meridian
       POSTGRES_DB: meridian
+
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
+
     healthcheck:
       test:
         [
@@ -22,11 +73,103 @@ services:
 
   compute:
     build: .
+
     environment:
-      DATABASE_URL: postgresql://meridian:meridian@postgres:5432/meridian
+      DATABASE_URL: >-
+        postgresql://meridian:meridian@postgres:5432/meridian
       BRONZE_ROOT: /bronze
+
     volumes:
       - bronze-data:/bronze
 
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  airflow-init:
+    <<: *airflow-common
+
+    environment:
+      <<: *airflow-common-environment
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: airflow
+      _AIRFLOW_WWW_USER_PASSWORD: airflow
+
+    command: version
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  airflow-api-server:
+    <<: *airflow-common
+    command: api-server
+
+    ports:
+      - "${AIRFLOW_PORT:-8080}:8080"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "--fail",
+          "http://localhost:8080/api/v2/monitor/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+    restart: unless-stopped
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "airflow jobs check --job-type SchedulerJob --hostname \"$${HOSTNAME}\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+    restart: unless-stopped
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    command: dag-processor
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "airflow jobs check --job-type DagProcessorJob --hostname \"$${HOSTNAME}\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+    restart: unless-stopped
+
 volumes:
   bronze-data:
+  airflow-logs:

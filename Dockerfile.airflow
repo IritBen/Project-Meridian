@@ -1,0 +1,53 @@
+FROM apache/airflow:3.3.2-python3.13
+
+ARG JUST_VERSION=1.59.0
+
+USER root
+
+# Install Docker CLI and the Docker Compose plugin.
+# The Docker daemon itself remains on the host and is accessed
+# through /var/run/docker.sock.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL \
+        https://download.docker.com/linux/debian/gpg \
+        -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && . /etc/os-release \
+    && echo \
+        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian ${VERSION_CODENAME} stable" \
+        > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        docker-ce-cli \
+        docker-compose-plugin \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install just for both amd64 and arm64 machines.
+RUN architecture="$(dpkg --print-architecture)" \
+    && case "${architecture}" in \
+        amd64) just_architecture="x86_64" ;; \
+        arm64) just_architecture="aarch64" ;; \
+        *) echo "Unsupported architecture: ${architecture}"; exit 1 ;; \
+    esac \
+    && curl -fsSL \
+        "https://github.com/casey/just/releases/download/${JUST_VERSION}/just-${JUST_VERSION}-${just_architecture}-unknown-linux-musl.tar.gz" \
+        | tar -xz -C /usr/local/bin just
+
+WORKDIR /opt/airflow/meridian
+
+COPY --chown=airflow:root pyproject.toml uv.lock ./
+COPY --chown=airflow:root src/ ./src/
+
+USER airflow
+
+# Install Meridian's Python package and dependencies into the same
+# Python environment used by Airflow.
+RUN pip install \
+    --no-cache-dir \
+    --constraint "${HOME}/constraints.txt" \
+    "apache-airflow==${AIRFLOW_VERSION}" \
+    .

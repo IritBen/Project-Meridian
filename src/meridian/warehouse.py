@@ -77,3 +77,30 @@ def initialize_warehouse(
                 )
             """
         )
+
+        cursor.execute(
+            "CREATE SCHEMA IF NOT EXISTS operational"
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS operational.control_table (
+                job_description TEXT NOT NULL,
+                market TEXT NOT NULL,
+                job_window TEXT NOT NULL,
+                job_name TEXT NOT NULL, 
+                status TEXT NOT NULL
+                    CHECK (
+                        status in ('success', 'failure')
+                    ),
+                updated_at TIMESTAMPTZ NOT NULL
+                    DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (
+                    job_description,
+                    market,
+                    job_window,
+                    job_name
+                )  
+            )
+            """
+        )
