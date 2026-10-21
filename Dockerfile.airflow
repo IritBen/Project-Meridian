@@ -50,4 +50,5 @@ RUN pip install \
     --no-cache-dir \
     --constraint "${HOME}/constraints.txt" \
     "apache-airflow==${AIRFLOW_VERSION}" \
+    apache-airflow-providers-fab \
     .

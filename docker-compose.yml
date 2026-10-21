@@ -2,6 +2,7 @@ name: ${COMPOSE_PROJECT_NAME:-meridian-pipeline}
 
 x-airflow-common:
   &airflow-common
+  image: ${COMPOSE_PROJECT_NAME:-meridian-pipeline}-airflow
   build:
     context: .
     dockerfile: Dockerfile.airflow
@@ -21,6 +22,15 @@ x-airflow-common:
 
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__PARALLELISM: "64"
+    AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: "32"
+    AIRFLOW__DAG_PROCESSOR__MIN_FILE_PROCESS_INTERVAL: "10"
+    AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL: "10"
+    AIRFLOW__CORE__PLUGINS_FOLDER: /opt/airflow/meridian/src/meridian_airflow/plugins
+    AIRFLOW_API_URL: http://airflow-api-server:8080
+    MERIDIAN_SCHEDULE_DIR: /opt/airflow/logs/meridian-schedules
+    MERIDIAN_PROJECT_ROOT: /opt/airflow/meridian
+    MERIDIAN_MAX_ACTIVE_RUNS: ${MERIDIAN_MAX_ACTIVE_RUNS:-8}
 
     AIRFLOW__API_AUTH__JWT_SECRET: meridian-local-jwt-secret
     AIRFLOW__API__SECRET_KEY: meridian-local-api-secret
@@ -61,6 +71,9 @@ services:
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
 
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
     healthcheck:
       test:
         [
@@ -72,6 +85,7 @@ services:
       retries: 15
 
   compute:
+    image: ${COMPOSE_PROJECT_NAME:-meridian-pipeline}-compute
     build: .
 
     environment:
@@ -173,3 +187,4 @@ services:
 volumes:
   bronze-data:
   airflow-logs:
+  postgres-data:

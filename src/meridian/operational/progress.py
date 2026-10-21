@@ -105,12 +105,3 @@ def next_due(connection: psycopg.Connection, job: str) -> str | None:
         else:
             return current_month.strftime("%Y-%m")
     return None 
-
-
-
-
-
-
-
-
-
