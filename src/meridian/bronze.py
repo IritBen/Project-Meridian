@@ -378,7 +378,7 @@ def ingest_to_bronze(job: str, window: str) -> None:
 
     finally:
         if staging_dir.exists():
-            rmtree(staging_dir)               
+            rmtree(staging_dir)             
 
 def inspect_bronze(job:str, window: str) -> dict:
     manifest_path = (

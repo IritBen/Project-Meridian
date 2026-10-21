@@ -1,5 +1,6 @@
 import calendar
-from datetime import date
+from datetime import date, datetime, timezone
+from meridian.operational.markets import earliest_start_date
 
 import psycopg
 
@@ -77,6 +78,37 @@ def is_month_complete(connection: psycopg.Connection, job: str, month: str) -> b
         completed_gold_days = cursor.fetchone()[0]
 
         return completed_gold_days == num_days
+
+def next_due(connection: psycopg.Connection, job: str) -> str | None:
+    now = datetime.now(timezone.utc)
+    first_of_this_month = now.replace(
+        day=1,
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    _, market = parse_trip_job(job)
+    earliest_month = earliest_start_date(market)
+    current_month = earliest_month
+    while current_month < first_of_this_month:
+        if is_month_complete(connection, job, current_month.strftime("%Y-%m"),):
+            if current_month.month == 12:
+                current_month = current_month.replace(
+                    year=current_month.year + 1,
+                    month=1,
+                )
+            else:
+                current_month = current_month.replace(
+                    month=current_month.month + 1,
+                )
+        else:
+            return current_month.strftime("%Y-%m")
+    return None 
+
+
+
+
 
 
 
