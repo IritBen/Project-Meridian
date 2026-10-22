@@ -4,14 +4,31 @@ import os
 import psycopg
 from urllib.request import Request, urlopen
 from uuid import uuid4
-
-from meridian.operational.runs import (
-    get_airflow_token,
-    read_run_details,
-)
 from meridian.trip_windows import parse_month_window
 from meridian.operational.progress import coverage
 from meridian.operational.publication import is_month_published
+from meridian.operational.runs import (
+    get_airflow_token,
+    read_run_details,
+    read_airflow_data,
+)
+
+def unpause_dag(dag_id: str, token: str) -> None:
+    request = Request(
+        f"http://airflow-api-server:8080/api/v2/dags/"
+        f"{dag_id}?update_mask=is_paused",
+        data=json.dumps({
+            "is_paused": False,
+        }).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        },
+        method="PATCH",
+    )
+
+    with urlopen(request, timeout=30) as response:
+        json.load(response)
 
 def run_pipeline(market: str, month: str | None = None) -> dict:
     if market not in {"jc", "nyc"}:
@@ -59,6 +76,8 @@ def run_pipeline(market: str, month: str | None = None) -> dict:
         created_run = json.load(response)
 
     run_id = created_run["dag_run_id"]
+
+    unpause_dag(dag_id, token)
 
     while True:
         details = read_run_details(
@@ -118,4 +137,68 @@ def create_backfill(market: str, start_month: str, end_month: str,) -> dict:
     )
 
     with urlopen(request, timeout=30) as response:
-        return json.load(response)
+        backfill = json.load(response)
+
+    unpause_dag(backfill["dag_id"], token)
+
+    return backfill
+
+def wait_for_backfill(backfill: dict) -> dict:
+    token = get_airflow_token()
+
+    backfill_id = backfill["id"]
+    dag_id = backfill["dag_id"]
+    request_id = backfill["dag_run_conf"]["request_id"]
+
+    while True:
+        details = read_airflow_data(
+            f"backfills/{backfill_id}",
+            token,
+        )
+
+        if details["completed_at"] is not None:
+            break
+
+        time.sleep(3)
+
+    backfill_runs = []
+    offset = 0
+
+    while True:
+        page = read_airflow_data(
+            f"dags/{dag_id}/dagRuns?limit=100&offset={offset}",
+            token,
+        )
+
+        runs = page["dag_runs"]
+
+        for run in runs:
+            conf = run["conf"] or {}
+
+            if conf.get("request_id") == request_id:
+                backfill_runs.append({
+                    "run_id": run["dag_run_id"],
+                    "state": run["state"],
+                })
+
+        offset += len(runs)
+
+        if not runs or offset >= page["total_entries"]:
+            break
+
+    failed_runs = [
+        run["run_id"]
+        for run in backfill_runs
+        if run["state"] == "failed"
+    ]
+
+    if failed_runs:
+        raise RuntimeError(
+            f"Backfill failed for runs: {', '.join(failed_runs)}"
+        )
+
+    return {
+        "backfill_id": backfill_id,
+        "state": "success",
+        "runs": backfill_runs,
+    }

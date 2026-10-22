@@ -11,6 +11,9 @@ x-airflow-common:
     &airflow-common-environment
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
 
+    AIRFLOW_UID: ${AIRFLOW_UID:-50000}
+    DOCKER_GID: ${DOCKER_GID:-0}
+
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: >-
       postgresql+psycopg://meridian:meridian@postgres:5432/meridian
 

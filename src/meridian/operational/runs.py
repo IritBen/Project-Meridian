@@ -1,9 +1,10 @@
 import json
 import subprocess
 import calendar
+import time
 from urllib.request import Request, urlopen
 from urllib.parse import quote
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 def get_airflow_token() -> str:
     credentials = {
@@ -34,16 +35,10 @@ def read_run_details(
     dag_id = f"trips_{market}_monthly"
     encoded_run_id = quote(run_id, safe="")
 
-    request = Request(
-        f"http://airflow-api-server:8080/api/v2/dags/"
-        f"{dag_id}/dagRuns/{encoded_run_id}",
-        headers={
-            "Authorization": f"Bearer {token}",
-        },
+    return read_airflow_data(
+        f"dags/{dag_id}/dagRuns/{encoded_run_id}",
+        token,
     )
-
-    with urlopen(request, timeout=30) as response:
-        return json.load(response)
 
 def read_task_details(market: str, run_id: str, token: str | None = None,) -> list:
     if token is None:
@@ -214,3 +209,30 @@ def inspect_runs(market: str) -> dict:
         "market": market,
         "runs": formatted_runs,
     }
+
+def read_airflow_data(path: str, token: str) -> dict:
+    request = Request(
+        f"http://airflow-api-server:8080/api/v2/{path}",
+        headers={
+            "Authorization": f"Bearer {token}",
+        },
+        method="GET",
+    )
+
+    for attempt in range(5):
+        try:
+            with urlopen(request, timeout=30) as response:
+                return json.load(response)
+
+        except HTTPError as error:
+            if error.code not in {500, 502, 503, 504}:
+                raise
+
+            if attempt == 4:
+                raise
+
+        except (URLError, TimeoutError, ConnectionError):
+            if attempt == 4:
+                raise
+
+        time.sleep(5)

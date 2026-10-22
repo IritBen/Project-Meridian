@@ -12,7 +12,7 @@ from meridian.gold import (
 from meridian.silver import inspect_silver, transform_to_silver
 from meridian.operational.runs import inspect_runs
 from meridian.operational.progress import coverage
-from meridian.operational.pipeline import run_pipeline
+from meridian.operational.pipeline import run_pipeline, create_backfill, wait_for_backfill
 
 def open_database_connection() -> psycopg.Connection:
     dsn = os.environ["DATABASE_URL"]
@@ -37,6 +37,7 @@ run_parser = subparsers.add_parser("run")
 run_parser.add_argument("layer")
 run_parser.add_argument("job")
 run_parser.add_argument("window", nargs="?")
+run_parser.add_argument("end_window", nargs="?")
 
 
 inspect_parser = subparsers.add_parser("inspect")
@@ -68,10 +69,34 @@ elif args.command == "run":
             f"run {args.layer} requires a window"
         )
 
+    if args.layer != "pipeline" and args.end_window:
+        parser.error(
+            "A month range is supported only for pipeline"
+        )
+
     if args.layer == "pipeline":
-        output = run_pipeline(args.job, args.window)
+        if args.end_window:
+            backfill = create_backfill(
+                args.job,
+                args.window,
+                args.end_window,
+            )
+
+            output = wait_for_backfill(backfill)
+
+        else:
+            output = run_pipeline(
+                args.job,
+                args.window,
+            )
+
         print(json.dumps(output))
 
+    elif args.layer == "ingest-to-bronze":
+        ingest_to_bronze(
+            args.job,
+            args.window,
+        )
 
     elif args.layer == "transform-to-silver":
         with open_database_connection() as connection:

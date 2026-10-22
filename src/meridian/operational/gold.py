@@ -1,5 +1,6 @@
 from meridian.operational.control import record_job_status
 from meridian.gold import transform_to_gold
+from meridian.operational.locks import named_lock
 from datetime import date
 import calendar
 import psycopg
@@ -9,7 +10,9 @@ from meridian.trip_windows import (
     parse_trip_job,
 )
 
-def gold_loop(connection: psycopg.Connection, selected_month: str) -> dict:
+def gold_loop(connection: psycopg.Connection, selected_month: str, market: str) -> dict:
+
+        parse_trip_job(f"trips:{market}")
         
         with connection.cursor() as cursor:
 
@@ -43,18 +46,18 @@ def gold_loop(connection: psycopg.Connection, selected_month: str) -> dict:
                 FROM operational.control_table
                 WHERE job_window = %s 
                   AND job_description = 'transform-to-silver' 
-                  AND market = 'jc'
+                  AND market = %s
                   AND job_name = 'trips'
                   AND status = 'success'
                 """, 
-                (selected_month,)                
+                (selected_month, market)                
             )
 
             max_silver_updated_at = cursor.fetchone()[0]
 
             if max_silver_updated_at is None:
                 raise ValueError(
-                    f"No successful Silver load for jc {selected_month}"
+                    f"No successful Silver load for {market} {selected_month}"
                 )
 
             cursor.execute(
@@ -64,7 +67,7 @@ def gold_loop(connection: psycopg.Connection, selected_month: str) -> dict:
                 WHERE job_window >= %s
                   AND job_window < %s
                   AND job_description = 'transform-to-gold'
-                  AND market = 'jc'
+                  AND market = %s
                   AND job_name = 'station-daily'
                   AND status = 'success'
                   AND updated_at > %s
@@ -72,6 +75,7 @@ def gold_loop(connection: psycopg.Connection, selected_month: str) -> dict:
                 (
                     month_start.isoformat(),
                     next_month_start.isoformat(),
+                    market,
                     max_silver_updated_at,
                 ),
             )
@@ -94,32 +98,36 @@ def gold_loop(connection: psycopg.Connection, selected_month: str) -> dict:
 
             if day in successful_days:
                 continue
-            else:
+
+            with named_lock(f"gold-day-{day}"):
                 try:
-                    transform_to_gold("station-daily", day, connection)
+                    transform_to_gold(
+                        "station-daily",
+                        day,
+                        connection,
+                    )
 
                     record_job_status(
                         connection,
                         "station-daily",
                         "transform-to-gold",
-                        "jc",
+                        market,
                         day,
-                        "success"
+                        "success",
                     )
 
                     connection.commit()
 
                 except Exception:
-
                     connection.rollback()
 
                     record_job_status(
                         connection,
                         "station-daily",
                         "transform-to-gold",
-                        "jc",
+                        market,
                         day,
-                        "failure"
+                        "failure",
                     )
 
                     connection.commit()

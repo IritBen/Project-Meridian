@@ -14,6 +14,7 @@ from meridian.trip_windows import parse_month_window
 from meridian.bronze import ingest_to_bronze
 from meridian.silver import transform_to_silver
 from meridian.operational.gold import gold_loop
+from meridian.operational.locks import named_lock
 from meridian.operational.control import record_job_status
 import psycopg
 import subprocess
@@ -24,7 +25,7 @@ from datetime import timedelta
     dag_id="trips_jc_monthly",
     schedule=CronDataIntervalTimetable("0 0 1 * *", timezone="UTC"),
     start_date=markets.earliest_start_date("jc"),
-    catchup=True,
+    catchup=False,
     max_active_runs=4,
     default_args={"retries":2, "retry_delay": timedelta(seconds=90), "owner": "data-eng"},
     params={"start": ""},
@@ -95,35 +96,36 @@ def jc_load_monthly():
     def ingest_bronze(selected_month: str) -> None:
         dsn = os.environ["DATABASE_URL"]
 
-        try:
-            ingest_to_bronze(
-                job="trips:jc",
-                window=selected_month,
-            )
-
-        except Exception:
-            with psycopg.connect(dsn) as connection:
-                record_job_status(
-                    connection,
-                    "trips",
-                    "ingest-to-bronze",
-                    "jc",
-                    selected_month,
-                    "failure",
+        with named_lock(f"trips-jc-{selected_month}"):
+            try:
+                ingest_to_bronze(
+                    job="trips:jc",
+                    window=selected_month,
                 )
 
-            raise
+            except Exception:
+                with psycopg.connect(dsn) as connection:
+                    record_job_status(
+                        connection,
+                        "trips",
+                        "ingest-to-bronze",
+                        "jc",
+                        selected_month,
+                        "failure",
+                    )
 
-        else:
-            with psycopg.connect(dsn) as connection:
-                record_job_status(
-                    connection,
-                    "trips",
-                    "ingest-to-bronze",
-                    "jc",
-                    selected_month,
-                    "success",
-                )
+                raise
+
+            else:
+                with psycopg.connect(dsn) as connection:
+                    record_job_status(
+                        connection,
+                        "trips",
+                        "ingest-to-bronze",
+                        "jc",
+                        selected_month,
+                        "success",
+                    )
 
     bronze_task = ingest_bronze(selected_window)
 
@@ -133,46 +135,47 @@ def jc_load_monthly():
     )
 
     @task
-    def transform_silver(selected_month: str ) -> None:
-
+    def transform_silver(selected_month: str) -> None:
         dsn = os.environ["DATABASE_URL"]
+        project_root = "/opt/airflow/meridian"
 
-        project_root = "/opt/airflow/meridian" 
-
-        try:
-            subprocess.run(
-                [
-                    "just",
-                    "run",
-                    "transform-to-silver",
-                    "trips:jc",
-                    selected_month
-                ],
-                cwd=project_root,
-                check=True
-            )
-        except Exception:
-            with psycopg.connect(dsn) as connection:
-                record_job_status(
-                    connection,
-                    "trips",
-                    "transform-to-silver",
-                    "jc",
-                    selected_month,
-                    "failure",
+        with named_lock(f"trips-jc-{selected_month}"):
+            try:
+                subprocess.run(
+                    [
+                        "just",
+                        "run",
+                        "transform-to-silver",
+                        "trips:jc",
+                        selected_month,
+                    ],
+                    cwd=project_root,
+                    check=True,
                 )
 
-            raise
-        else:
-            with psycopg.connect(dsn) as connection:
-                record_job_status(
-                    connection,
-                    "trips",
-                    "transform-to-silver",
-                    "jc",
-                    selected_month,
-                    "success",
-                )
+            except Exception:
+                with psycopg.connect(dsn) as connection:
+                    record_job_status(
+                        connection,
+                        "trips",
+                        "transform-to-silver",
+                        "jc",
+                        selected_month,
+                        "failure",
+                    )
+
+                raise
+
+            else:
+                with psycopg.connect(dsn) as connection:
+                    record_job_status(
+                        connection,
+                        "trips",
+                        "transform-to-silver",
+                        "jc",
+                        selected_month,
+                        "success",
+                    )
 
     silver_task = transform_silver(selected_window)
 
@@ -182,27 +185,29 @@ def jc_load_monthly():
     )
 
     @task
-    def transform_gold(selected_month: str) -> None:
+    def transform_gold(selected_month: str) -> dict:
 
         dsn = os.environ["DATABASE_URL"]
 
-        with psycopg.connect(dsn) as connection:
-            result = gold_loop(connection, selected_month)
+        with named_lock(f"trips-jc-{selected_month}"):
 
-        context = get_current_context()
-
-        context["ti"].xcom_push(
-            key="gold_summary",
-            value=result,
-        )
-
-        if result["failed_days"]:
-            raise RuntimeError(
-                f"Gold failed for days: "
-                f"{', '.join(result['failed_days'])}"
+            with psycopg.connect(dsn) as connection:
+                result = gold_loop(connection, selected_month, market="jc")
+    
+            context = get_current_context()
+    
+            context["ti"].xcom_push(
+                key="gold_summary",
+                value=result,
             )
-
-        return result
+    
+            if result["failed_days"]:
+                raise RuntimeError(
+                    f"Gold failed for days: "
+                    f"{', '.join(result['failed_days'])}"
+                )
+    
+            return result
 
     gold_task = transform_gold(selected_window)
 
@@ -213,5 +218,3 @@ def jc_load_monthly():
 
     
 jc_load_monthly()
-
-        
