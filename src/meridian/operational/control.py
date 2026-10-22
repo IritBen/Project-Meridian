@@ -15,7 +15,8 @@ def record_job_status(
             """
             INSERT INTO operational.control_table (
                 job_description,
-                market, job_window,
+                market, 
+                job_window,
                 job_name,
                 status,
                 updated_at

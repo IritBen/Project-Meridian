@@ -4,38 +4,16 @@ ARG JUST_VERSION=1.59.0
 
 USER root
 
-# Install Docker CLI and the Docker Compose plugin.
-# The Docker daemon itself remains on the host and is accessed
-# through /var/run/docker.sock.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-    && install -m 0755 -d /etc/apt/keyrings \
-    && curl -fsSL \
-        https://download.docker.com/linux/debian/gpg \
-        -o /etc/apt/keyrings/docker.asc \
-    && chmod a+r /etc/apt/keyrings/docker.asc \
-    && . /etc/os-release \
-    && echo \
-        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian ${VERSION_CODENAME} stable" \
-        > /etc/apt/sources.list.d/docker.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-        docker-ce-cli \
-        docker-compose-plugin \
-    && rm -rf /var/lib/apt/lists/*
+# Copy Docker CLI and Compose v2 from the official Docker image.
+COPY --from=docker:27-cli \
+    /usr/local/bin/docker \
+    /usr/local/bin/docker
 
-# Install just for both amd64 and arm64 machines.
-RUN architecture="$(dpkg --print-architecture)" \
-    && case "${architecture}" in \
-        amd64) just_architecture="x86_64" ;; \
-        arm64) just_architecture="aarch64" ;; \
-        *) echo "Unsupported architecture: ${architecture}"; exit 1 ;; \
-    esac \
-    && curl -fsSL \
-        "https://github.com/casey/just/releases/download/${JUST_VERSION}/just-${JUST_VERSION}-${just_architecture}-unknown-linux-musl.tar.gz" \
-        | tar -xz -C /usr/local/bin just
+COPY --from=docker:27-cli \
+    /usr/local/libexec/docker/cli-plugins/docker-compose \
+    /usr/local/libexec/docker/cli-plugins/docker-compose
+
+RUN docker --version && docker compose version
 
 WORKDIR /opt/airflow/meridian
 
@@ -51,4 +29,5 @@ RUN pip install \
     --constraint "${HOME}/constraints.txt" \
     "apache-airflow==${AIRFLOW_VERSION}" \
     apache-airflow-providers-fab \
+    "rust-just==${JUST_VERSION}" \
     .

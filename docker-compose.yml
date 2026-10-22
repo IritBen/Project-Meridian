@@ -86,6 +86,7 @@ services:
 
   compute:
     image: ${COMPOSE_PROJECT_NAME:-meridian-pipeline}-compute
+    user: "${AIRFLOW_UID:-50000}:0"
     build: .
 
     environment:

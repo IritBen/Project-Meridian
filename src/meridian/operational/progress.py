@@ -105,3 +105,83 @@ def next_due(connection: psycopg.Connection, job: str) -> str | None:
         else:
             return current_month.strftime("%Y-%m")
     return None 
+
+def coverage(connection: psycopg.Connection, job: str,) -> dict:
+    dataset, market = parse_trip_job(job)
+    earliest_date = earliest_start_date(market)
+
+    current_date = earliest_date
+
+    watermark = None
+    completed_months = 0
+    incomplete_months = []
+    gaps = []
+    next_month = None
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT max(job_window)
+            FROM operational.control_table
+            WHERE 
+              market = %s
+              AND job_name = %s
+              AND status = 'success'
+              AND job_description = 'transform-to-silver'
+              AND job_window >= %s
+            """, 
+            (
+                market, dataset, earliest_date.strftime("%Y-%m")
+            ),
+        )
+
+        max_month = cursor.fetchone()[0]
+
+    if max_month is not None:
+        max_date = datetime.strptime(
+        max_month,
+        "%Y-%m",
+    ).replace(tzinfo=timezone.utc)
+            
+        while current_date <= max_date:
+
+            month_value = current_date.strftime("%Y-%m")
+
+            if is_month_complete(connection, job, month_value):
+                completed_months += 1
+
+                if next_month is None:
+                    watermark = month_value
+
+                gaps = incomplete_months.copy()
+
+            else:
+                incomplete_months.append(month_value)
+
+                if next_month is None:
+                    next_month = month_value
+
+            if current_date.month == 12:
+                current_date = current_date.replace(
+                        year=current_date.year + 1,
+                        month=1,
+                        day=1
+                    )
+            else:
+                current_date = current_date.replace(
+                        year=current_date.year,
+                        month=current_date.month + 1,
+                        day=1
+                    )
+
+    if next_month is None:
+        next_month = current_date.strftime("%Y-%m")
+
+    return {
+        "job": job,
+        "earliest": earliest_date.strftime("%Y-%m"),
+        "watermark": watermark,
+        "complete": completed_months,
+        "gaps": gaps,
+        "next": next_month
+        }

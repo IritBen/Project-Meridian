@@ -10,6 +10,9 @@ from meridian.gold import (
     transform_to_gold,
 )
 from meridian.silver import inspect_silver, transform_to_silver
+from meridian.operational.runs import inspect_runs
+from meridian.operational.progress import coverage
+from meridian.operational.pipeline import run_pipeline
 
 def open_database_connection() -> psycopg.Connection:
     dsn = os.environ["DATABASE_URL"]
@@ -33,13 +36,13 @@ init_parser.add_argument(
 run_parser = subparsers.add_parser("run")
 run_parser.add_argument("layer")
 run_parser.add_argument("job")
-run_parser.add_argument("window")
+run_parser.add_argument("window", nargs="?")
 
 
 inspect_parser = subparsers.add_parser("inspect")
 inspect_parser.add_argument("layer")
 inspect_parser.add_argument("job")
-inspect_parser.add_argument("window")
+inspect_parser.add_argument("window", nargs="?")
 
 
 report_parser = subparsers.add_parser("report")
@@ -60,11 +63,15 @@ if args.command == "init":
 
 
 elif args.command == "run":
-    if args.layer == "ingest-to-bronze":
-        ingest_to_bronze(
-            args.job,
-            args.window,
+    if args.layer != "pipeline" and not args.window:
+        parser.error(
+            f"run {args.layer} requires a window"
         )
+
+    if args.layer == "pipeline":
+        output = run_pipeline(args.job, args.window)
+        print(json.dumps(output))
+
 
     elif args.layer == "transform-to-silver":
         with open_database_connection() as connection:
@@ -89,11 +96,15 @@ elif args.command == "run":
 
 
 elif args.command == "inspect":
+    if args.layer in {"bronze", "silver"} and not args.window:
+        parser.error(
+            f"inspect {args.layer} requires a window"
+        )
+
     if args.layer == "bronze":
         output = inspect_bronze(args.job, args.window)
 
     elif args.layer == "silver":
-        
         with open_database_connection() as connection:
             output = inspect_silver(
                 args.job,
@@ -101,8 +112,27 @@ elif args.command == "inspect":
                 connection,
             )
 
+    elif args.layer == "runs":
+        if args.window:
+            parser.error(
+                "inspect runs takes a market only"
+            )
+
+        output = inspect_runs(args.job)
+
+    elif args.layer == "coverage":
+        if args.window:
+            parser.error(
+                "inspect coverage takes a job only"
+            )
+
+        with open_database_connection() as connection:
+            output = coverage(connection, args.job)
+
     else:
-        parser.error(f"Unsupported inspect layer: {args.layer}")
+        parser.error(
+            f"Unsupported inspect layer: {args.layer}"
+        )
 
     print(json.dumps(output))
 
