@@ -51,13 +51,20 @@ def nyc_load_monthly():
         dsn = os.environ["DATABASE_URL"]
 
         with psycopg.connect(dsn) as connection:
+            
             if run_type in ("scheduled", "backfill"):
                 requested_month = data_interval_start.strftime("%Y-%m")
+
+                if requested_month < markets.EARLIEST_WINDOWS["nyc"]:
+                    raise AirflowFailException(
+                        f"{requested_month} is before the earliest window for nyc"
+                    )
 
                 if is_month_complete(connection, job, requested_month):
                     raise AirflowSkipException(
                         f"{requested_month} is already complete"
                     )
+
                 return requested_month
 
             else:
@@ -96,7 +103,7 @@ def nyc_load_monthly():
     def ingest_bronze(selected_month: str) -> None:
         dsn = os.environ["DATABASE_URL"]
 
-        with named_lock(f"trips-jc-{selected_month}"):
+        with named_lock(f"trips-nyc-{selected_month}"):
 
             try:
                 ingest_to_bronze(

@@ -5,6 +5,7 @@ import time
 from urllib.request import Request, urlopen
 from urllib.parse import quote
 from urllib.error import HTTPError, URLError
+from datetime import datetime, timezone
 
 def get_airflow_token() -> str:
     credentials = {
@@ -129,16 +130,23 @@ def inspect_runs(market: str) -> dict:
 
     formatted_runs = []
 
-    runs = sorted(
-        runs,
-        key=lambda run: run["run_after"],
+    run_details = [
+        read_run_details(market, run["run_id"])
+        for run in runs
+    ]
+
+    run_details = sorted(
+        run_details,
+        key=lambda details: (
+            datetime.fromisoformat(details["queued_at"])
+            if details.get("queued_at")
+            else datetime.min.replace(tzinfo=timezone.utc)
+        ),
         reverse=True,
     )
 
-    for run in runs:
-        run_id = run["run_id"]
-
-        details = read_run_details(market, run_id)
+    for details in run_details:
+        run_id = details["dag_run_id"]
         task_details = read_task_details(market, run_id)
 
         run_type = details["run_type"]

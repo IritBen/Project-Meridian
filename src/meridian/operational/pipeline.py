@@ -4,6 +4,7 @@ import os
 import psycopg
 from urllib.request import Request, urlopen
 from uuid import uuid4
+from urllib.error import HTTPError
 from meridian.trip_windows import parse_month_window
 from meridian.operational.progress import coverage
 from meridian.operational.publication import is_month_published
@@ -80,11 +81,23 @@ def run_pipeline(market: str, month: str | None = None) -> dict:
     unpause_dag(dag_id, token)
 
     while True:
-        details = read_run_details(
-            market,
-            run_id,
-            token=token,
-        )
+        try:
+            details = read_run_details(
+                market,
+                run_id,
+                token=token,
+            )
+        except HTTPError as error:
+            if error.code != 401:
+                raise
+
+            token = get_airflow_token()
+
+            details = read_run_details(
+                market,
+                run_id,
+                token=token,
+            )
 
         if details["state"] == "success":
             return {
@@ -151,10 +164,21 @@ def wait_for_backfill(backfill: dict) -> dict:
     request_id = backfill["dag_run_conf"]["request_id"]
 
     while True:
-        details = read_airflow_data(
-            f"backfills/{backfill_id}",
-            token,
-        )
+        try:
+            details = read_airflow_data(
+                f"backfills/{backfill_id}",
+                token,
+            )
+        except HTTPError as error:
+            if error.code != 401:
+                raise
+
+            token = get_airflow_token()
+
+            details = read_airflow_data(
+                f"backfills/{backfill_id}",
+                token,
+            )
 
         if details["completed_at"] is not None:
             break
@@ -165,10 +189,21 @@ def wait_for_backfill(backfill: dict) -> dict:
     offset = 0
 
     while True:
-        page = read_airflow_data(
-            f"dags/{dag_id}/dagRuns?limit=100&offset={offset}",
-            token,
-        )
+        try:
+            page = read_airflow_data(
+                f"dags/{dag_id}/dagRuns?limit=100&offset={offset}",
+                token,
+            )
+        except HTTPError as error:
+            if error.code != 401:
+                raise
+
+            token = get_airflow_token()
+
+            page = read_airflow_data(
+                f"dags/{dag_id}/dagRuns?limit=100&offset={offset}",
+                token,
+            )
 
         runs = page["dag_runs"]
 
