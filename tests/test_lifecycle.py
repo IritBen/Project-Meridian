@@ -6,6 +6,7 @@ TEST_ENV.update(
     {
         "COMPOSE_PROJECT_NAME": "meridian-pipeline-test",
         "POSTGRES_PORT": "5433",
+        "AIRFLOW_PORT": "8082",
     }
 )
 
