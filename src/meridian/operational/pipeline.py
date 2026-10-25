@@ -4,13 +4,13 @@ import os
 import psycopg
 from urllib.request import Request, urlopen
 from uuid import uuid4
+from urllib.parse import quote
 from urllib.error import HTTPError
 from meridian.trip_windows import parse_month_window
 from meridian.operational.progress import coverage
 from meridian.operational.publication import is_month_published
 from meridian.operational.runs import (
     get_airflow_token,
-    read_run_details,
     read_airflow_data,
 )
 
@@ -30,6 +30,19 @@ def unpause_dag(dag_id: str, token: str) -> None:
 
     with urlopen(request, timeout=30) as response:
         json.load(response)
+
+def read_with_token_refresh(path: str, token: str,) -> tuple[dict, str]:
+    try:
+        result = read_airflow_data(path, token)
+
+    except HTTPError as error:
+        if error.code != 401:
+            raise
+
+        token = get_airflow_token()
+        result = read_airflow_data(path, token)
+
+    return result, token
 
 def run_pipeline(market: str, month: str | None = None) -> dict:
     if market not in {"jc", "nyc"}:
@@ -81,23 +94,10 @@ def run_pipeline(market: str, month: str | None = None) -> dict:
     unpause_dag(dag_id, token)
 
     while True:
-        try:
-            details = read_run_details(
-                market,
-                run_id,
-                token=token,
-            )
-        except HTTPError as error:
-            if error.code != 401:
-                raise
-
-            token = get_airflow_token()
-
-            details = read_run_details(
-                market,
-                run_id,
-                token=token,
-            )
+        details, token = read_with_token_refresh(
+            f"dags/{dag_id}/dagRuns/{quote(run_id, safe='')}",
+            token,
+        )
 
         if details["state"] == "success":
             return {
@@ -164,21 +164,10 @@ def wait_for_backfill(backfill: dict) -> dict:
     request_id = backfill["dag_run_conf"]["request_id"]
 
     while True:
-        try:
-            details = read_airflow_data(
-                f"backfills/{backfill_id}",
-                token,
-            )
-        except HTTPError as error:
-            if error.code != 401:
-                raise
-
-            token = get_airflow_token()
-
-            details = read_airflow_data(
-                f"backfills/{backfill_id}",
-                token,
-            )
+        details, token = read_with_token_refresh(
+            f"backfills/{backfill_id}",
+            token,
+        )
 
         if details["completed_at"] is not None:
             break
@@ -189,21 +178,10 @@ def wait_for_backfill(backfill: dict) -> dict:
     offset = 0
 
     while True:
-        try:
-            page = read_airflow_data(
-                f"dags/{dag_id}/dagRuns?limit=100&offset={offset}",
-                token,
-            )
-        except HTTPError as error:
-            if error.code != 401:
-                raise
-
-            token = get_airflow_token()
-
-            page = read_airflow_data(
-                f"dags/{dag_id}/dagRuns?limit=100&offset={offset}",
-                token,
-            )
+        page, token = read_with_token_refresh(
+            f"dags/{dag_id}/dagRuns?limit=100&offset={offset}",
+            token,
+        )
 
         runs = page["dag_runs"]
 

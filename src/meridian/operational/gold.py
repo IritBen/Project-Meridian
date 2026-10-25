@@ -1,13 +1,12 @@
 from meridian.operational.control import record_job_status
 from meridian.gold import transform_to_gold
 from meridian.operational.locks import named_lock
-from datetime import date
-import calendar
 import psycopg
 
 from meridian.trip_windows import (
     parse_month_window,
     parse_trip_job,
+    month_bounds
 )
 
 def gold_loop(connection: psycopg.Connection, selected_month: str, market: str) -> dict:
@@ -17,28 +16,9 @@ def gold_loop(connection: psycopg.Connection, selected_month: str, market: str) 
         with connection.cursor() as cursor:
 
             year_text, month_text = parse_month_window(selected_month)
-            year_number = int(year_text)
-            month_number = int(month_text)
-            _, num_days = calendar.monthrange(year_number, month_number)
-
-            month_start = date(
-                year_number,
-                month_number,
-                1
+            month_start, next_month_start, num_days = month_bounds(
+                selected_month
             )
-
-            if month_number == 12:
-                next_month_start = date(
-                    year_number + 1,
-                    1,
-                    1
-                )
-            else:
-                next_month_start = date(
-                    year_number,
-                    month_number + 1,
-                    1
-                )
 
             cursor.execute(
                 """
@@ -90,11 +70,7 @@ def gold_loop(connection: psycopg.Connection, selected_month: str, market: str) 
         failed_days = []
 
         for day_number in range(1, num_days + 1):
-            day = date(
-                year_number,
-                month_number,
-                day_number,
-            ).isoformat()
+            day = month_start.replace(day=day_number).isoformat()
 
             if day in successful_days:
                 continue

@@ -1,5 +1,7 @@
 import re
 import os
+import calendar
+from datetime import date
 from pathlib import Path
 
 SUPPORTED_TRIP_JOBS = {
@@ -34,6 +36,22 @@ def parse_month_window(window:str) -> tuple[str,str]:
     year, month = window.split("-", maxsplit=1)
 
     return year, month
+
+def month_bounds(window: str) -> tuple[date, date, int]:
+    year_text, month_text = parse_month_window(window)
+    year = int(year_text)
+    month = int(month_text)
+
+    month_start = date(year, month, 1)
+
+    if month == 12:
+        next_month_start = date(year + 1, 1, 1)
+    else:
+        next_month_start = date(year, month + 1, 1)
+
+    _, num_days = calendar.monthrange(year, month)
+
+    return month_start, next_month_start, num_days
 
 def bronze_window_directory(job: str, window: str, bronze_root: Path | None = None,) -> Path:
     dataset, market = parse_trip_job(job)

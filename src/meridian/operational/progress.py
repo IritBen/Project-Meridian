@@ -1,41 +1,18 @@
-import calendar
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from meridian.operational.markets import earliest_start_date
 
 import psycopg
 
 from meridian.trip_windows import (
-    parse_month_window,
     parse_trip_job,
+    month_bounds
 )
 
 def is_month_complete(connection: psycopg.Connection, job: str, month: str) -> bool:
     with connection.cursor() as cursor:
 
         dataset, market = parse_trip_job(job)
-        year_text, month_text = parse_month_window(month)
-        year = int(year_text)
-        month_number = int(month_text)
-        _, num_days = calendar.monthrange(year, month_number)
-
-        month_start = date(
-            year,
-            month_number,
-            1,
-        )
-
-        if month_number == 12:
-            next_month_start = date(
-                year + 1,
-                1,
-                1,
-            )
-        else:
-            next_month_start = date(
-                year,
-                month_number + 1,
-                1,
-            )
+        month_start, next_month_start, num_days = month_bounds(month)
 
         cursor.execute(
             """

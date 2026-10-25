@@ -106,6 +106,52 @@ def read_gold_summary(market: str, run_id: str) -> dict | None:
 
         raise
 
+def format_run_tasks(
+    market: str,
+    month: str | None,
+    task_details: list,
+    gold_summary: dict | None,
+) -> dict:
+    task_names = {
+        "ingest_bronze":
+            f"ingest-to-bronze trips:{market} {month}",
+        "transform_silver":
+            f"transform-to-silver trips:{market} {month}",
+        "transform_gold":
+            "transform-to-gold station-daily",
+    }
+
+    tasks = {}
+
+    for task in task_details:
+        task_id = task["task_id"]
+
+        if task_id not in task_names:
+            continue
+
+        task_name = task_names[task_id]
+
+        tasks[task_name] = {
+            "state": task["state"],
+            "tries": task["try_number"],
+        }
+
+        if task_id == "transform_gold":
+            if month is not None:
+                year, month_number = map(int, month.split("-"))
+                _, num_days = calendar.monthrange(year, month_number)
+                tasks[task_name]["days"] = num_days
+
+            tasks[task_name]["failed_days"] = None
+
+            if gold_summary is not None:
+                tasks[task_name]["days"] = gold_summary["days"]
+                tasks[task_name]["failed_days"] = (
+                    gold_summary["failed_days"]
+                )
+
+    return tasks
+
 def inspect_runs(market: str) -> dict:
     if market not in {"jc", "nyc"}:
         raise ValueError(f"Unsupported market: {market}")
@@ -157,54 +203,14 @@ def inspect_runs(market: str) -> dict:
             interval_start = details["data_interval_start"]
             month = interval_start[:7] if interval_start else None
 
-        task_names = {
-            "ingest_bronze":
-                f"ingest-to-bronze trips:{market} {month}",
-            "transform_silver":
-                f"transform-to-silver trips:{market} {month}",
-            "transform_gold":
-                "transform-to-gold station-daily",
-        }
-
-        tasks = {}
-
-        for task in task_details:
-            task_id = task["task_id"]
-
-            if task_id not in task_names:
-                continue
-
-            task_name = task_names[task_id]
-
-            tasks[task_name] = {
-                "state": task["state"],
-                "tries": task["try_number"],
-            }
-
-            if task_id == "transform_gold" and month is not None:
-                year_number, month_number = map(
-                    int,
-                    month.split("-"),
-                )
-
-                _, num_days = calendar.monthrange(
-                    year_number,
-                    month_number,
-                )
-
-                tasks[task_name]["days"] = num_days
-
         gold_summary = read_gold_summary(market, run_id)
 
-        gold_task_name = "transform-to-gold station-daily"
-
-        if gold_summary is not None:
-            tasks[gold_task_name]["days"] = gold_summary["days"]
-            tasks[gold_task_name]["failed_days"] = (
-                gold_summary["failed_days"]
-            )
-        else:
-            tasks[gold_task_name]["failed_days"] = None
+        tasks = format_run_tasks(
+            market,
+            month,
+            task_details,
+            gold_summary,
+        )
 
         formatted_runs.append({
             "month": month,
