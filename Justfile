@@ -17,6 +17,9 @@ up:
 
     docker compose up -d --wait airflow-api-server airflow-scheduler airflow-dag-processor
 
+    docker compose exec -T --user root airflow-scheduler \
+    bash -c "chown -R ${compute_uid}:0 /bronze && chmod -R u+rwX /bronze"
+
     dags_ready=false
 
     for attempt in {1..30}; do

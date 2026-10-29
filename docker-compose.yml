@@ -60,7 +60,7 @@ x-airflow-common:
     - ./src/meridian_airflow/dags:/opt/airflow/dags
     - bronze-data:/bronze
     - airflow-logs:/opt/airflow/logs
-    - /var/run/docker.sock:/var/run/docker.sock
+    - ${CONTAINER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
 
 services:
   postgres:
@@ -157,7 +157,7 @@ services:
           "airflow jobs check --job-type SchedulerJob --hostname \"$${HOSTNAME}\"",
         ]
       interval: 30s
-      timeout: 10s
+      timeout: 30s
       retries: 5
       start_period: 30s
 
@@ -178,7 +178,7 @@ services:
           "airflow jobs check --job-type DagProcessorJob --hostname \"$${HOSTNAME}\"",
         ]
       interval: 30s
-      timeout: 10s
+      timeout: 30s
       retries: 5
       start_period: 30s
 
